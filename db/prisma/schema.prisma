@@ -15,6 +15,7 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   refreshtoken  String   @default(" ")
+  tests         UserTest[]
 }
 model Hospital{
   id          String     @id @default(uuid())
@@ -30,5 +31,15 @@ model Test{
   name        String
   price       Int
   hospitalId  String
-  hospital    Hospital  @relation(fields: [hospitalId],references: [id])     
+  hospital    Hospital  @relation(fields: [hospitalId],references: [id])  
+  user        UserTest[]   
+}
+model UserTest {
+  userId String
+  testId String
+
+  user   User @relation(fields: [userId], references: [id])
+  test   Test @relation(fields: [testId], references: [id])
+
+  @@id([userId, testId])
 }
