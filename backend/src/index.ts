@@ -4,6 +4,7 @@ import cors from "cors"
 import cookieParser from "cookie-parser"
 import { UserAuthRoter } from "./routes/userAuth"
 import { HospitalAuthRouter } from "./routes/hospitalAuth"
+import { userBookingRouter } from "./routes/userBooking"
 
 const app=express()
 
@@ -13,5 +14,5 @@ app.use(cookieParser())
 
 app.use("/api/user/auth",UserAuthRoter)
 app.use("/api/hospital/auth",HospitalAuthRouter)
-
+app.use("/api/user/booking",userBookingRouter)
 app.listen(8080)
