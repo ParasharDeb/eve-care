@@ -3,7 +3,7 @@ import { SigninSchema, Signupschema } from "../types/userAuthTypes";
 import bcrypt from "bcrypt"
 import prisma from "@repo/db";
 import jwt from "jsonwebtoken"
-import { generateAccessToken, generateRefreshToken } from "../utils/tokens";
+import { generateAccessToken, generateRefreshToken, hashToken } from "../utils/tokens";
 export const UserAuthRoter=Router()
 UserAuthRoter.post("/signup",async(req,res)=>{
     const parsed = Signupschema.safeParse(req.body)
@@ -74,7 +74,7 @@ UserAuthRoter.post("/signin",async(req,res)=>{
     }
     const accessToken = generateAccessToken(existinguser.id);
     const refreshToken = generateRefreshToken(existinguser.id);
-    const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+    const refreshTokenHash = hashToken(refreshToken);
 
     await prisma.user.update({
     where: { id: existinguser.id },
@@ -95,7 +95,6 @@ UserAuthRoter.post("/signin",async(req,res)=>{
 })
 
 UserAuthRoter.post("/refresh",async (req,res)=>{
-    
   const refreshToken = req.cookies.refreshToken;
 
   if (!refreshToken) {
@@ -123,10 +122,7 @@ UserAuthRoter.post("/refresh",async (req,res)=>{
     }
 
 
-    const valid = await bcrypt.compare(
-      refreshToken,
-      user.refreshtoken
-    );
+    const valid = hashToken(refreshToken) === user.refreshtoken;
 
     if (!valid) {
       return res.status(401).json({
@@ -143,14 +139,14 @@ UserAuthRoter.post("/refresh",async (req,res)=>{
 
 
     const newRefreshTokenHash =
-      await bcrypt.hash(newRefreshToken, 10);
+      hashToken(newRefreshToken);
 
     await prisma.user.update({
       where: {
         id: user.id,
       },
       data: {
-        refreshTokenHash: newRefreshTokenHash,
+        refreshtoken: newRefreshTokenHash,
       },
     });
 
@@ -188,13 +184,14 @@ UserAuthRoter.post("/logout",async(req,res)=>{
           id: decoded.userId,
         },
         data: {
-          refreshTokenHash: null,
+          refreshtoken: "",
         },
       });
     } catch {
-      res.json({
-        message:"you are not signed int"
-    })
+      res.clearCookie("refreshToken");
+      return res.status(401).json({
+        message:"you are not signed in"
+      })
     }
   }
 

@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken"
+import { createHash } from "crypto"
 export interface JwtPayload {
   userId: string;
 }
@@ -20,4 +21,7 @@ export function generateRefreshToken(userId: string) {
       expiresIn: "30d",
     }
   );
+}
+export function hashToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
 }
