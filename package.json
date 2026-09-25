@@ -1,0 +1,8 @@
+{
+    "name":"eve-care",
+    "private": true,
+    "workspaces":[
+    "backend",
+    "db"
+  ]
+}
