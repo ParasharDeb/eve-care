@@ -7,16 +7,17 @@
     "@types/bun": "latest"
   },
   "scripts": {
-    "dev":"bun --watch run src/index.ts",
+    "dev": "bun --watch run src/index.ts",
     "start": "bun run src/index.ts"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "@repo/db": "workspace:*",
+    "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
-    "@repo/db":"workspace:*",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^18.0.3",

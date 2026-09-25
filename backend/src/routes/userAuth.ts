@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { Signupschema } from "../types/userAuthTypes";
+import bcrypt from "bcrypt"
 import prisma from "@repo/db";
 export const UserAuthRoter=Router()
 
 UserAuthRoter.post("/signup",async(req,res)=>{
     const parsed = Signupschema.safeParse(req.body)
-    console.log(parsed)
     if(!parsed.success){
         res.status(411).json({
             message:"fillup all the input boxes"
@@ -23,12 +23,13 @@ UserAuthRoter.post("/signup",async(req,res)=>{
         })
         return;
     }
+    const hashedpassword= await bcrypt.hash(parsed.data.password,10)
     try {
         const user = await prisma.user.create({
             data:{
                 username:parsed.data.username,
                 email:parsed.data.email,
-                password:parsed.data.password,
+                password:hashedpassword,
                 createdAt:new Date()
             }
         })
