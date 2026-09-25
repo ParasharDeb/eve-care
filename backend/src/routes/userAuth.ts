@@ -93,3 +93,36 @@ UserAuthRoter.post("/signin",async(req,res)=>{
     accessToken
   });
 })
+
+UserAuthRoter.post("/logout",async(req,res)=>{
+  const refreshToken = req.cookies.refreshToken;
+
+  if (refreshToken) {
+    try {
+      const decoded = jwt.verify(
+        refreshToken,
+        process.env.REFRESH_TOKEN_SECRET!
+      ) as { userId: string };
+
+      await prisma.user.update({
+        where: {
+          id: decoded.userId,
+        },
+        data: {
+          refreshTokenHash: null,
+        },
+      });
+    } catch {
+      res.json({
+        message:"you are not signed int"
+    })
+    }
+  }
+
+  res.clearCookie("refreshToken");
+
+  return res.json({
+    message: "Logged out",
+  });
+
+})
