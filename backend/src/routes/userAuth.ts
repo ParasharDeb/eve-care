@@ -94,6 +94,85 @@ UserAuthRoter.post("/signin",async(req,res)=>{
   });
 })
 
+UserAuthRoter.post("/refresh",async (req,res)=>{
+    
+  const refreshToken = req.cookies.refreshToken;
+
+  if (!refreshToken) {
+    return res.status(401).json({
+      message: "No refresh token",
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(
+      refreshToken,
+      process.env.REFRESH_TOKEN_SECRET!
+    ) as { userId: string };
+
+    const user = await prisma.user.findUnique({
+      where: {
+        id: decoded.userId,
+      },
+    });
+
+    if (!user || !user.refreshtoken) {
+      return res.status(401).json({
+        message: "Invalid refresh token",
+      });
+    }
+
+
+    const valid = await bcrypt.compare(
+      refreshToken,
+      user.refreshtoken
+    );
+
+    if (!valid) {
+      return res.status(401).json({
+        message: "Invalid refresh token",
+      });
+    }
+
+
+    const newAccessToken =
+      generateAccessToken(user.id);
+
+    const newRefreshToken =
+      generateRefreshToken(user.id);
+
+
+    const newRefreshTokenHash =
+      await bcrypt.hash(newRefreshToken, 10);
+
+    await prisma.user.update({
+      where: {
+        id: user.id,
+      },
+      data: {
+        refreshTokenHash: newRefreshTokenHash,
+      },
+    });
+
+    res.cookie("refreshToken", newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
+
+    return res.json({
+      accessToken: newAccessToken,
+    });
+
+  } catch {
+    return res.status(401).json({
+      message: "Invalid or expired refresh token",
+    });
+  }
+}
+)
+
 UserAuthRoter.post("/logout",async(req,res)=>{
   const refreshToken = req.cookies.refreshToken;
 
