@@ -8,7 +8,8 @@ export const userBookingRouter=Router()
 userBookingRouter.post("/search-by-hospital",async(req,res)=>{
     const hospital=SearchHospitalSchema.safeParse(req.body)
     if(!hospital.success){
-        res.json({
+        req.log.warn("search-by-hospital validation failed")
+        res.status(400).json({
             message:"enter a valid hospital name"
         })
         return
@@ -23,7 +24,8 @@ userBookingRouter.post("/search-by-hospital",async(req,res)=>{
         }
     })
     if(!data){
-        res.json({
+        req.log.info({ query:hospital.data.hospital },"search-by-hospital: no match")
+        res.status(404).json({
             message:"this hospital is not in our database"
         })
         return
@@ -34,6 +36,7 @@ userBookingRouter.post("/search-by-hospital",async(req,res)=>{
             hospitalId:hospitalId
         }
     })
+    req.log.info({ hospitalId, results:tests.length },"search-by-hospital")
     res.json({
         tests:tests
     })
@@ -41,7 +44,8 @@ userBookingRouter.post("/search-by-hospital",async(req,res)=>{
 userBookingRouter.post("/search-by-tests",async(req,res)=>{
     const testname=SearchTestSchema.safeParse(req.body)
     if(!testname.success){
-        res.json({
+        req.log.warn("search-by-tests validation failed")
+        res.status(400).json({
             message:"enter a valid test name"
         })
         return
@@ -64,7 +68,8 @@ userBookingRouter.post("/search-by-tests",async(req,res)=>{
         }
     }
     })
-    
+
+    req.log.info({ query:testname.data.testname, results:data.length },"search-by-tests")
     res.json({
         data
     })

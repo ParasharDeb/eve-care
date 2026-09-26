@@ -8,7 +8,8 @@ export const UserAuthRoter=Router()
 UserAuthRoter.post("/signup",async(req,res)=>{
     const parsed = Signupschema.safeParse(req.body)
     if(!parsed.success){
-        res.status(411).json({
+        req.log.warn({ issues: parsed.error.issues.map(i=>i.path.join(".")) },"user signup validation failed")
+        res.status(400).json({
             message:"fillup all the input boxes"
         })
         return;
@@ -19,7 +20,8 @@ UserAuthRoter.post("/signup",async(req,res)=>{
         }
     })
     if(emailExists){
-        res.status(411).json({
+        req.log.warn("user signup rejected: email already in use")
+        res.status(409).json({
             message:"This email is already in use. use another email"
         })
         return;
@@ -34,22 +36,27 @@ UserAuthRoter.post("/signup",async(req,res)=>{
                 createdAt:new Date()
             }
         })
-        
-    res.json({
-        message:user.id
-    })
-    } catch (error) {   
-        console.log(error)
-        res.status(404).json({
-            message:"Sorry the backend is down. Try again alter"
+        req.log.info({ userId:user.id },"user signed up")
+        res.status(201).json({
+            message:user.id
         })
+    } catch (error) {
+        // concurrent signup with the same email
+        if ((error as { code?: string }).code === "P2002") {
+            res.status(409).json({
+                message:"This email is already in use. use another email"
+            })
+            return
+        }
+        throw error
     }
 })
 
 UserAuthRoter.post("/signin",async(req,res)=>{
     const parsed = SigninSchema.safeParse(req.body)
     if(!parsed.success){
-        res.status(411).json({
+        req.log.warn({ issues: parsed.error.issues.map(i=>i.path.join(".")) },"user signin validation failed")
+        res.status(400).json({
             message:"fillup all input boxes"
         })
         return
@@ -60,14 +67,16 @@ UserAuthRoter.post("/signin",async(req,res)=>{
         }
     })
     if(!existinguser){
-        res.status(411  ).json({
+        req.log.warn({ reason:"unknown_email" },"user signin failed")
+        res.status(401).json({
             message:"email doesnt exist"
         })
         return
     }
     const ispasswordcorrect = await bcrypt.compare(parsed.data.password,existinguser.password)
     if(!ispasswordcorrect){
-        res.status(411).json({
+        req.log.warn({ reason:"wrong_password", userId:existinguser.id },"user signin failed")
+        res.status(401).json({
             message:"Your password is incorrect"
         })
         return
@@ -89,6 +98,7 @@ UserAuthRoter.post("/signin",async(req,res)=>{
     maxAge: 30 * 24 * 60 * 60 * 1000,
   });
 
+  req.log.info({ userId:existinguser.id },"user signed in")
   return res.json({
     accessToken
   });
@@ -98,74 +108,64 @@ UserAuthRoter.post("/refresh",async (req,res)=>{
   const refreshToken = req.cookies.refreshToken;
 
   if (!refreshToken) {
+    req.log.warn({ reason:"no_cookie" },"user refresh failed")
     return res.status(401).json({
       message: "No refresh token",
     });
   }
 
+  let decoded: { userId: string };
   try {
-    const decoded = jwt.verify(
+    decoded = jwt.verify(
       refreshToken,
       process.env.REFRESH_TOKEN_SECRET!
     ) as { userId: string };
-
-    const user = await prisma.user.findUnique({
-      where: {
-        id: decoded.userId,
-      },
-    });
-
-    if (!user || !user.refreshtoken) {
-      return res.status(401).json({
-        message: "Invalid refresh token",
-      });
-    }
-
-
-    const valid = hashToken(refreshToken) === user.refreshtoken;
-
-    if (!valid) {
-      return res.status(401).json({
-        message: "Invalid refresh token",
-      });
-    }
-
-
-    const newAccessToken =
-      generateAccessToken(user.id);
-
-    const newRefreshToken =
-      generateRefreshToken(user.id);
-
-
-    const newRefreshTokenHash =
-      hashToken(newRefreshToken);
-
-    await prisma.user.update({
-      where: {
-        id: user.id,
-      },
-      data: {
-        refreshtoken: newRefreshTokenHash,
-      },
-    });
-
-    res.cookie("refreshToken", newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-    });
-
-    return res.json({
-      accessToken: newAccessToken,
-    });
-
   } catch {
+    req.log.warn({ reason:"invalid_or_expired_jwt" },"user refresh failed")
     return res.status(401).json({
       message: "Invalid or expired refresh token",
     });
   }
+
+  const user = await prisma.user.findUnique({
+    where: {
+      id: decoded.userId,
+    },
+  });
+
+  if (!user || !user.refreshtoken || hashToken(refreshToken) !== user.refreshtoken) {
+    req.log.warn({ reason: user ? "token_not_current" : "user_not_found", userId:decoded.userId },"user refresh failed")
+    return res.status(401).json({
+      message: "Invalid refresh token",
+    });
+  }
+
+  const newAccessToken =
+    generateAccessToken(user.id);
+
+  const newRefreshToken =
+    generateRefreshToken(user.id);
+
+  await prisma.user.update({
+    where: {
+      id: user.id,
+    },
+    data: {
+      refreshtoken: hashToken(newRefreshToken),
+    },
+  });
+
+  res.cookie("refreshToken", newRefreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+  });
+
+  req.log.info({ userId:user.id },"user token refreshed")
+  return res.json({
+    accessToken: newAccessToken,
+  });
 }
 )
 
@@ -173,26 +173,30 @@ UserAuthRoter.post("/logout",async(req,res)=>{
   const refreshToken = req.cookies.refreshToken;
 
   if (refreshToken) {
+    let decoded: { userId: string };
     try {
-      const decoded = jwt.verify(
+      decoded = jwt.verify(
         refreshToken,
         process.env.REFRESH_TOKEN_SECRET!
       ) as { userId: string };
-
-      await prisma.user.update({
-        where: {
-          id: decoded.userId,
-        },
-        data: {
-          refreshtoken: "",
-        },
-      });
     } catch {
+      req.log.warn({ reason:"invalid_or_expired_jwt" },"user logout failed")
       res.clearCookie("refreshToken");
       return res.status(401).json({
         message:"you are not signed in"
       })
     }
+
+    // updateMany doesn't throw if the user was deleted
+    await prisma.user.updateMany({
+      where: {
+        id: decoded.userId,
+      },
+      data: {
+        refreshtoken: "",
+      },
+    });
+    req.log.info({ userId:decoded.userId },"user logged out")
   }
 
   res.clearCookie("refreshToken");

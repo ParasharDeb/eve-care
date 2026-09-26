@@ -16,7 +16,8 @@ const cookieOptions={
 HospitalAuthRouter.post("/signup",async(req,res)=>{
     const parsed = HospitalSignupSchema.safeParse(req.body)
     if(!parsed.success){
-        res.status(411).json({
+        req.log.warn({ issues: parsed.error.issues.map(i=>i.path.join(".")) },"hospital signup validation failed")
+        res.status(400).json({
             message:"fillup all the input boxes"
         })
         return;
@@ -27,7 +28,8 @@ HospitalAuthRouter.post("/signup",async(req,res)=>{
         }
     })
     if(emailExists){
-        res.status(411).json({
+        req.log.warn("hospital signup rejected: email already in use")
+        res.status(409).json({
             message:"This email is already in use. use another email"
         })
         return;
@@ -38,7 +40,8 @@ HospitalAuthRouter.post("/signup",async(req,res)=>{
         }
     })
     if(nameExists){
-        res.status(411).json({
+        req.log.warn("hospital signup rejected: name already registered")
+        res.status(409).json({
             message:"A hospital with this name is already registered"
         })
         return;
@@ -54,21 +57,27 @@ HospitalAuthRouter.post("/signup",async(req,res)=>{
                 refrestoken:""
             }
         })
-        res.json({
+        req.log.info({ hospitalId:hospital.id },"hospital signed up")
+        res.status(201).json({
             message:hospital.id
         })
     } catch (error) {
-        console.log(error)
-        res.status(500).json({
-            message:"Sorry the backend is down. Try again later"
-        })
+        // concurrent signup with the same email or name
+        if ((error as { code?: string }).code === "P2002") {
+            res.status(409).json({
+                message:"This email or hospital name is already registered"
+            })
+            return
+        }
+        throw error
     }
 })
 
 HospitalAuthRouter.post("/signin",async(req,res)=>{
     const parsed = HospitalSigninSchema.safeParse(req.body)
     if(!parsed.success){
-        res.status(411).json({
+        req.log.warn({ issues: parsed.error.issues.map(i=>i.path.join(".")) },"hospital signin validation failed")
+        res.status(400).json({
             message:"fillup all input boxes"
         })
         return
@@ -79,14 +88,16 @@ HospitalAuthRouter.post("/signin",async(req,res)=>{
         }
     })
     if(!hospital){
-        res.status(411).json({
+        req.log.warn({ reason:"unknown_email" },"hospital signin failed")
+        res.status(401).json({
             message:"email doesnt exist"
         })
         return
     }
     const ispasswordcorrect = await bcrypt.compare(parsed.data.password,hospital.password)
     if(!ispasswordcorrect){
-        res.status(411).json({
+        req.log.warn({ reason:"wrong_password", hospitalId:hospital.id },"hospital signin failed")
+        res.status(401).json({
             message:"Your password is incorrect"
         })
         return
@@ -102,6 +113,7 @@ HospitalAuthRouter.post("/signin",async(req,res)=>{
     });
     res.cookie(process.env.REFRESH_COOKIE!, refreshToken, cookieOptions);
 
+    req.log.info({ hospitalId:hospital.id },"hospital signed in")
     return res.json({
         accessToken
     });
@@ -111,78 +123,86 @@ HospitalAuthRouter.post("/refresh",async (req,res)=>{
     const refreshToken = req.cookies[process.env.REFRESH_COOKIE!];
 
     if (!refreshToken) {
+        req.log.warn({ reason:"no_cookie" },"hospital refresh failed")
         return res.status(401).json({
             message: "No refresh token",
         });
     }
 
+    let decoded: { userId: string };
     try {
-        const decoded = jwt.verify(
+        decoded = jwt.verify(
             refreshToken,
             process.env.REFRESH_TOKEN_SECRET!
         ) as { userId: string };
-
-        const hospital = await prisma.hospital.findUnique({
-            where: {
-                id: decoded.userId,
-            },
-        });
-
-        if (!hospital || !hospital.refrestoken || hashToken(refreshToken) !== hospital.refrestoken) {
-            return res.status(401).json({
-                message: "Invalid refresh token",
-            });
-        }
-
-        const newAccessToken = generateAccessToken(hospital.id);
-        const newRefreshToken = generateRefreshToken(hospital.id);
-
-        await prisma.hospital.update({
-            where: {
-                id: hospital.id,
-            },
-            data: {
-                refrestoken: hashToken(newRefreshToken),
-            },
-        });
-
-        res.cookie(process.env.REFRESH_COOKIE!, newRefreshToken, cookieOptions);
-
-        return res.json({
-            accessToken: newAccessToken,
-        });
-
     } catch {
+        req.log.warn({ reason:"invalid_or_expired_jwt" },"hospital refresh failed")
         return res.status(401).json({
             message: "Invalid or expired refresh token",
         });
     }
+
+    const hospital = await prisma.hospital.findUnique({
+        where: {
+            id: decoded.userId,
+        },
+    });
+
+    if (!hospital || !hospital.refrestoken || hashToken(refreshToken) !== hospital.refrestoken) {
+        req.log.warn({ reason: hospital ? "token_not_current" : "hospital_not_found", hospitalId:decoded.userId },"hospital refresh failed")
+        return res.status(401).json({
+            message: "Invalid refresh token",
+        });
+    }
+
+    const newAccessToken = generateAccessToken(hospital.id);
+    const newRefreshToken = generateRefreshToken(hospital.id);
+
+    await prisma.hospital.update({
+        where: {
+            id: hospital.id,
+        },
+        data: {
+            refrestoken: hashToken(newRefreshToken),
+        },
+    });
+
+    res.cookie(process.env.REFRESH_COOKIE!, newRefreshToken, cookieOptions);
+
+    req.log.info({ hospitalId:hospital.id },"hospital token refreshed")
+    return res.json({
+        accessToken: newAccessToken,
+    });
 })
 
 HospitalAuthRouter.post("/logout",async(req,res)=>{
     const refreshToken = req.cookies[process.env.REFRESH_COOKIE!];
 
     if (refreshToken) {
+        let decoded: { userId: string };
         try {
-            const decoded = jwt.verify(
+            decoded = jwt.verify(
                 refreshToken,
                 process.env.REFRESH_TOKEN_SECRET!
             ) as { userId: string };
-
-            await prisma.hospital.update({
-                where: {
-                    id: decoded.userId,
-                },
-                data: {
-                    refrestoken: "",
-                },
-            });
         } catch {
+            req.log.warn({ reason:"invalid_or_expired_jwt" },"hospital logout failed")
             res.clearCookie(process.env.REFRESH_COOKIE!);
             return res.status(401).json({
                 message:"you are not signed in"
             })
         }
+
+        // updateMany doesn't throw if the hospital was deleted
+        await prisma.hospital.updateMany({
+            where: {
+                id: decoded.userId,
+            },
+            data: {
+                refrestoken: "",
+            },
+        });
+        req.log.info({ hospitalId:decoded.userId },"hospital logged out")
     }
 
     res.clearCookie(process.env.REFRESH_COOKIE!);
