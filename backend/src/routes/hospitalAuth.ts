@@ -3,7 +3,7 @@ import { HospitalSigninSchema, HospitalSignupSchema } from "../types/hospitalAut
 import bcrypt from "bcrypt"
 import prisma from "@repo/db";
 import jwt from "jsonwebtoken"
-import { generateAccessToken, generateRefreshToken, hashToken } from "../utils/tokens";
+import { generateHospitalAccessToken, generateRefreshToken, hashToken } from "../utils/tokens";
 export const HospitalAuthRouter=Router()
 
 const cookieOptions={
@@ -102,7 +102,7 @@ HospitalAuthRouter.post("/signin",async(req,res)=>{
         })
         return
     }
-    const accessToken = generateAccessToken(hospital.id);
+    const accessToken = generateHospitalAccessToken(hospital.id);
     const refreshToken = generateRefreshToken(hospital.id);
 
     await prisma.hospital.update({
@@ -155,7 +155,7 @@ HospitalAuthRouter.post("/refresh",async (req,res)=>{
         });
     }
 
-    const newAccessToken = generateAccessToken(hospital.id);
+    const newAccessToken = generateHospitalAccessToken(hospital.id);
     const newRefreshToken = generateRefreshToken(hospital.id);
 
     await prisma.hospital.update({

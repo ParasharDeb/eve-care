@@ -26,7 +26,7 @@ export const hospitalAuthMiddleware = (
   try {
     const decoded = jwt.verify(
       token,
-      process.env.ACCESS_TOKEN_SECRET!
+      process.env.HOSPITAL_TOKEN_SECRET!
     ) as { userId: string };
 
     req.hospital = {

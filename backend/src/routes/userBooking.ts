@@ -82,7 +82,16 @@ userBookingRouter.post("/book-test",userAuthMiddleware,async (req: UserRequest, 
     if (!parsed.success) {
       req.log.warn("book-test validation failed");
       return res.status(400).json({
-        message: "Invalid test ID",
+        message: "Invalid input",
+      });
+    }
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    if (new Date(parsed.data.date) < startOfToday) {
+      req.log.warn("book-test: date in the past");
+      return res.status(400).json({
+        message: "Booking date cannot be in the past",
       });
     }
 

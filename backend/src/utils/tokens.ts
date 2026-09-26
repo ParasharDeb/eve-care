@@ -13,6 +13,16 @@ export function generateAccessToken(userId: string) {
   );
 }
 
+export function generateHospitalAccessToken(hospitalId: string) {
+  return jwt.sign(
+    { userId: hospitalId },
+    process.env.HOSPITAL_TOKEN_SECRET!,
+    {
+      expiresIn: "15m",
+    }
+  );
+}
+
 export function generateRefreshToken(userId: string) {
   return jwt.sign(
     { userId },
