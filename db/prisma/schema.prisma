@@ -13,6 +13,11 @@ enum Status{
   Failed
   Cancelled
 }
+enum PaymentStatus{
+  Created
+  Success
+  Failed
+}
 model User {
   id            String   @id @default(uuid())
   email         String   @unique
@@ -45,10 +50,21 @@ model Booking {
   userId    String
   testId    String
   status    Status   @default(Pending)
-  paymentStatus Status
+  payments  Payment[]
   date      DateTime
   time      DateTime
   user      User     @relation(fields: [userId], references: [id])
   test      Test     @relation(fields: [testId], references: [id])
   createdAt DateTime @default(now())
+}
+model Payment {
+  id             String        @id @default(uuid())
+  bookingId      String
+  booking        Booking       @relation(fields: [bookingId], references: [id])
+  amount         Int                           
+  status         PaymentStatus @default(Created)
+  idempotencyKey String        @unique
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  @@index([bookingId])
 }

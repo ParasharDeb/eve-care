@@ -5,6 +5,7 @@ import { UserAuthRoter } from "./routes/userAuth"
 import { HospitalAuthRouter } from "./routes/hospitalAuth"
 import { userBookingRouter } from "./routes/userBooking"
 import { httpLogger } from "./utils/logger"
+import { PaymentRouter } from "./routes/userPayments"
 
 export const app=express()
 
@@ -16,7 +17,7 @@ app.use(cookieParser())
 app.use("/api/user/auth",UserAuthRoter)
 app.use("/api/hospital/auth",HospitalAuthRouter)
 app.use("/api/user/booking",userBookingRouter)
-
+app.use("/api/user/payment",PaymentRouter)
 app.use((_req,res)=>{
     res.status(404).json({ message:"route not found" })
 })
