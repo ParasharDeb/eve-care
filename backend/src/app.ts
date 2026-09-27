@@ -17,7 +17,7 @@ app.use(cookieParser())
 app.use("/api/user/auth",UserAuthRoter)
 app.use("/api/hospital/auth",HospitalAuthRouter)
 app.use("/api/user/booking",userBookingRouter)
-app.use("/api/user/payment",PaymentRouter)
+app.use("/payments",PaymentRouter)
 app.use((_req,res)=>{
     res.status(404).json({ message:"route not found" })
 })

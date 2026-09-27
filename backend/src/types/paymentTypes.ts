@@ -5,3 +5,5 @@ export const paymentTypes=z.object({
 })
 
 export const idempotencyKeySchema=z.uuid()
+
+export const paymentIdSchema=z.uuid()
