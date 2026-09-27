@@ -1,5 +1,7 @@
 import {z} from "zod"
 export const paymentTypes=z.object({
-    amount:z.number(),
-    
+    bookingId:z.uuid(),
+    simulate:z.enum(["success","failure"]).optional()
 })
+
+export const idempotencyKeySchema=z.uuid()

@@ -20,7 +20,7 @@ userBookingRouter.post("/search-by-hospital",userAuthMiddleware,async(req,res)=>
     const data= await prisma.hospital.findFirst({
         where:{
             hopitalname:{
-                equals:hospital.data.hospital,
+                contains:hospital.data.hospital,
                 mode: "insensitive"
             }
         }
@@ -55,7 +55,7 @@ userBookingRouter.post("/search-by-tests",userAuthMiddleware,async(req,res)=>{
     const data = await prisma.test.findMany({
     where: {
         name: {
-        equals:testname.data.testname,
+        contains:testname.data.testname,
         mode: "insensitive"}
     },
     select: {
@@ -130,7 +130,7 @@ userBookingRouter.post("/booking",userAuthMiddleware,async(req:UserRequest,res)=
             return
         }
 
-        // price is copied from the test so later price changes don't alter this booking
+        
         const booking=await prisma.booking.create({
             data:{
                 userId:userId,

@@ -48,8 +48,8 @@ model Test{
 }
 model Booking {
   id        String   @id @default(uuid())
-  userId    String   @unique   
-  testId    String   @unique
+  userId    String    
+  testId    String  
   price     Int
   status    Status   @default(Pending)
   payments  Payment?
