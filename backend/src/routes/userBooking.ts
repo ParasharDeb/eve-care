@@ -1,9 +1,7 @@
 import { Router } from "express";
 import prisma from "@repo/db";
 import { SearchHospitalSchema, SearchTestSchema } from "../types/UserSearch";
-import { BookingSchema } from "../types/UserBooking";
 import { userAuthMiddleware } from "../middleware/userAuthMiddleware";
-import type { UserRequest } from "../middleware/userAuthMiddleware";
 
 export const userBookingRouter=Router()
 
@@ -77,82 +75,19 @@ userBookingRouter.post("/search-by-tests",userAuthMiddleware,async(req,res)=>{
         data
     })
 })
-userBookingRouter.post("/book-test",userAuthMiddleware,async (req: UserRequest, res) => {
-    const parsed = BookingSchema.safeParse(req.body);
-    if (!parsed.success) {
-      req.log.warn("book-test validation failed");
-      return res.status(400).json({
-        message: "Invalid input",
-      });
-    }
+userBookingRouter.get("/bookings",userAuthMiddleware,(req,res)=>{
+    // gets all the users bookings by id
+})
+userBookingRouter.get("/nearest-hospital",userAuthMiddleware,(req,res)=>{
+    // get all the hospitals near the user
+    // need to add user location in the user table
+})
+userBookingRouter.post("/booking",userAuthMiddleware,(req,res)=>{
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    if (new Date(parsed.data.date) < startOfToday) {
-      req.log.warn("book-test: date in the past");
-      return res.status(400).json({
-        message: "Booking date cannot be in the past",
-      });
-    }
+})
+userBookingRouter.get("/booking/:id",userAuthMiddleware,(req,res)=>{
 
-    const userId = req.user!.id;
-    const testId = parsed.data.testid;
+})
+userBookingRouter.get("/bookings",userAuthMiddleware,(req,res)=>{
 
-    try {
-      const test = await prisma.test.findUnique({
-        where: { id: testId },
-      });
-
-      if (!test) {
-        req.log.info({ testId }, "book-test: test not found");
-        return res.status(404).json({
-          message: "Test not found",
-        });
-      }
-
-      const existingBooking = await prisma.booking.findFirst({
-        where: {
-          userId,
-          testId,
-          status: {
-            in: ["Pending", "Confirmed"],
-          },
-        },
-      });
-
-      if (existingBooking) {
-        req.log.warn({ userId, testId }, "book-test: duplicate booking attempt");
-        return res.status(409).json({
-          message: "You have already booked this test",
-        });
-      }
-
-      const bookingDate = new Date(parsed.data.date);
-      const [hours, minutes] = parsed.data.time.split(":").map(Number);
-      const bookingTime = new Date(bookingDate);
-      bookingTime.setHours(hours!, minutes, 0, 0);
-
-      const booking = await prisma.booking.create({
-        data: {
-          userId,
-          testId,
-          date: bookingDate,
-          time: bookingTime,
-          status: "Pending",
-          paymentStatus: "Pending",
-        },
-      });
-
-      req.log.info({ userId, testId, bookingId: booking.id }, "test booked");
-      return res.status(201).json({
-        message: "Test booked successfully",
-        booking,
-      });
-    } catch (error) {
-      req.log.error({ userId, testId, error }, "book-test error");
-      return res.status(500).json({
-        message: "Failed to book test",
-      });
-    }
-  }
-);
+})
