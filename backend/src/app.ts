@@ -6,6 +6,7 @@ import { HospitalAuthRouter } from "./routes/hospitalAuth"
 import { userBookingRouter } from "./routes/userBooking"
 import { httpLogger } from "./utils/logger"
 import { PaymentRouter } from "./routes/userPayments"
+import { HospitalBooking } from "./routes/hospitalBooking"
 
 export const app=express()
 
@@ -16,6 +17,7 @@ app.use(cookieParser())
 
 app.use("/api/user/auth",UserAuthRoter)
 app.use("/api/hospital/auth",HospitalAuthRouter)
+app.use("/api/hospital/tests",HospitalBooking)
 app.use("/api/user/booking",userBookingRouter)
 app.use("/payments",PaymentRouter)
 app.use((_req,res)=>{
