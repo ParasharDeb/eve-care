@@ -1,0 +1,10 @@
+**/node_modules
+**/.env
+**/.env.*
+db/src/generated
+backend/tests
+db/.agents
+db/.claude
+db/.cursor
+db/.devin
+.git
