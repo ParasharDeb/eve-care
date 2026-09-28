@@ -3,7 +3,7 @@ import { HospitalSigninSchema, HospitalSignupSchema } from "../types/hospitalAut
 import bcrypt from "bcrypt"
 import prisma from "@repo/db";
 import jwt from "jsonwebtoken"
-import { generateHospitalAccessToken, generateRefreshToken, hashToken } from "../utils/tokens";
+import { generateHospitalAccessToken, generateHospitalRefreshToken, hashToken } from "../utils/tokens";
 export const HospitalAuthRouter=Router()
 
 const cookieOptions={
@@ -18,7 +18,7 @@ HospitalAuthRouter.post("/signup",async(req,res)=>{
     if(!parsed.success){
         req.log.warn({ issues: parsed.error.issues.map(i=>i.path.join(".")) },"hospital signup validation failed")
         res.status(400).json({
-            message:"fillup all the input boxes"
+            message:"fillup all the input boxes with a valid email and a password of at least 8 characters"
         })
         return;
     }
@@ -78,7 +78,7 @@ HospitalAuthRouter.post("/signin",async(req,res)=>{
     if(!parsed.success){
         req.log.warn({ issues: parsed.error.issues.map(i=>i.path.join(".")) },"hospital signin validation failed")
         res.status(400).json({
-            message:"fillup all input boxes"
+            message:"enter a valid email and password"
         })
         return
     }
@@ -103,7 +103,7 @@ HospitalAuthRouter.post("/signin",async(req,res)=>{
         return
     }
     const accessToken = generateHospitalAccessToken(hospital.id);
-    const refreshToken = generateRefreshToken(hospital.id);
+    const refreshToken = generateHospitalRefreshToken(hospital.id);
 
     await prisma.hospital.update({
         where: { id: hospital.id },
@@ -133,7 +133,7 @@ HospitalAuthRouter.post("/refresh",async (req,res)=>{
     try {
         decoded = jwt.verify(
             refreshToken,
-            process.env.REFRESH_TOKEN_SECRET!
+            process.env.HOSPITAL_REFRESH_TOKEN_SECRET!
         ) as { userId: string };
     } catch {
         req.log.warn({ reason:"invalid_or_expired_jwt" },"hospital refresh failed")
@@ -156,7 +156,7 @@ HospitalAuthRouter.post("/refresh",async (req,res)=>{
     }
 
     const newAccessToken = generateHospitalAccessToken(hospital.id);
-    const newRefreshToken = generateRefreshToken(hospital.id);
+    const newRefreshToken = generateHospitalRefreshToken(hospital.id);
 
     await prisma.hospital.update({
         where: {
@@ -183,7 +183,7 @@ HospitalAuthRouter.post("/logout",async(req,res)=>{
         try {
             decoded = jwt.verify(
                 refreshToken,
-                process.env.REFRESH_TOKEN_SECRET!
+                process.env.HOSPITAL_REFRESH_TOKEN_SECRET!
             ) as { userId: string };
         } catch {
             req.log.warn({ reason:"invalid_or_expired_jwt" },"hospital logout failed")

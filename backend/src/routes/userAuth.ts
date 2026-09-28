@@ -10,7 +10,7 @@ UserAuthRoter.post("/signup",async(req,res)=>{
     if(!parsed.success){
         req.log.warn({ issues: parsed.error.issues.map(i=>i.path.join(".")) },"user signup validation failed")
         res.status(400).json({
-            message:"fillup all the input boxes"
+            message:"fillup all the input boxes with a valid email and a password of at least 8 characters"
         })
         return;
     }
@@ -57,7 +57,7 @@ UserAuthRoter.post("/signin",async(req,res)=>{
     if(!parsed.success){
         req.log.warn({ issues: parsed.error.issues.map(i=>i.path.join(".")) },"user signin validation failed")
         res.status(400).json({
-            message:"fillup all input boxes"
+            message:"enter a valid email and password"
         })
         return
     }
@@ -91,7 +91,7 @@ UserAuthRoter.post("/signin",async(req,res)=>{
       refreshtoken:refreshTokenHash,
     },
     });
-    res.cookie("refreshToken", refreshToken, {
+    res.cookie(process.env.USER_REFRESH_COOKIE!, refreshToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -105,7 +105,7 @@ UserAuthRoter.post("/signin",async(req,res)=>{
 })
 
 UserAuthRoter.post("/refresh",async (req,res)=>{
-  const refreshToken = req.cookies.refreshToken;
+  const refreshToken = req.cookies[process.env.USER_REFRESH_COOKIE!];
 
   if (!refreshToken) {
     req.log.warn({ reason:"no_cookie" },"user refresh failed")
@@ -155,7 +155,7 @@ UserAuthRoter.post("/refresh",async (req,res)=>{
     },
   });
 
-  res.cookie("refreshToken", newRefreshToken, {
+  res.cookie(process.env.USER_REFRESH_COOKIE!, newRefreshToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -170,7 +170,7 @@ UserAuthRoter.post("/refresh",async (req,res)=>{
 )
 
 UserAuthRoter.post("/logout",async(req,res)=>{
-  const refreshToken = req.cookies.refreshToken;
+  const refreshToken = req.cookies[process.env.USER_REFRESH_COOKIE!];
 
   if (refreshToken) {
     let decoded: { userId: string };
@@ -181,7 +181,7 @@ UserAuthRoter.post("/logout",async(req,res)=>{
       ) as { userId: string };
     } catch {
       req.log.warn({ reason:"invalid_or_expired_jwt" },"user logout failed")
-      res.clearCookie("refreshToken");
+      res.clearCookie(process.env.USER_REFRESH_COOKIE!);
       return res.status(401).json({
         message:"you are not signed in"
       })
@@ -193,13 +193,13 @@ UserAuthRoter.post("/logout",async(req,res)=>{
         id: decoded.userId,
       },
       data: {
-        refreshtoken: "",
+        refreshtoken: null,
       },
     });
     req.log.info({ userId:decoded.userId },"user logged out")
   }
 
-  res.clearCookie("refreshToken");
+  res.clearCookie(process.env.USER_REFRESH_COOKIE!);
 
   return res.json({
     message: "Logged out",

@@ -60,6 +60,7 @@ userBookingRouter.post("/search-by-tests",userAuthMiddleware,async(req,res)=>{
         mode: "insensitive"}
     },
     select: {
+        id: true,
         name: true,
         price: true,
         hospital: {
@@ -71,15 +72,18 @@ userBookingRouter.post("/search-by-tests",userAuthMiddleware,async(req,res)=>{
         }
     }
     })
+    if(data.length===0){
+        req.log.info({ query:testname.data.testname },"search-by-tests: no match")
+        res.status(404).json({
+            message:"no test with this name is in our database"
+        })
+        return
+    }
 
     req.log.info({ query:testname.data.testname, results:data.length },"search-by-tests")
     res.json({
         data
     })
-})
-userBookingRouter.get("/nearest-hospital",userAuthMiddleware,(req,res)=>{
-    // get all the hospitals near the user
-    // need to add user location in the user table
 })
 userBookingRouter.post("/booking",userAuthMiddleware,async(req:UserRequest,res)=>{
     const parsed=BookingSchema.safeParse(req.body)

@@ -8,6 +8,9 @@ import { httpLogger } from "./utils/logger"
 import { PaymentRouter } from "./routes/userPayments"
 import { HospitalBooking } from "./routes/hospitalBooking"
 import { apiLimiter, authLimiter, paymentLimiter } from "./utils/rateLimit"
+import { CentresRouter } from "./routes/centres"
+import swaggerUi from "swagger-ui-express"
+import { openapiSpec } from "./docs/openapi"
 
 export const app=express()
 
@@ -27,7 +30,14 @@ app.use("/api/user/auth",UserAuthRoter)
 app.use("/api/hospital/auth",HospitalAuthRouter)
 app.use("/api/hospital/tests",HospitalBooking)
 app.use("/api/user/booking",userBookingRouter)
+app.use("/api/centres",CentresRouter)
 app.use("/payments",PaymentRouter)
+
+// swagger ui at /docs, the raw spec at /docs/openapi.json
+app.get("/docs/openapi.json",(_req,res)=>{
+    res.json(openapiSpec)
+})
+app.use("/docs",swaggerUi.serve,swaggerUi.setup(openapiSpec))
 app.use((_req,res)=>{
     res.status(404).json({ message:"route not found" })
 })

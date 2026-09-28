@@ -1,5 +1,6 @@
 import "dotenv/config";
 import prisma from "../src/client";
+import { PaymentStatus, Status } from "../src/generated/prisma/enums";
 
 // Re-runnable: only touches rows whose email starts with "seed."
 const USER_PASSWORD = "User@1234";
@@ -60,15 +61,16 @@ const users = [
   { email: "seed.nobookings@example.com", username: "newuser" },
 ];
 
-// [user email, hospital email, test name, status, paymentStatus]
-const bookings: [string, string, string, string, string][] = [
-  ["seed.asha@example.com", "seed.citycare@example.com", "Complete Blood Count", "completed", "paid"],
-  ["seed.asha@example.com", "seed.citycare@example.com", "Lipid Profile", "confirmed", "paid"],
-  ["seed.asha@example.com", "seed.sunrise@example.com", "MRI Brain", "pending", "pending"],
-  ["seed.rahul@example.com", "seed.greenvalley@example.com", "Vitamin D", "confirmed", "paid"],
-  ["seed.rahul@example.com", "seed.greenvalley@example.com", "Urine Routine", "cancelled", "refunded"],
-  ["seed.priya@example.com", "seed.sunrise@example.com", "Thyroid Profile", "pending", "failed"],
-  ["seed.priya@example.com", "seed.citycare@example.com", "HbA1c", "completed", "paid"],
+// [user email, hospital email, test name, booking status, payment status (null = not paid yet)]
+// one of each state the payment flow can leave a booking in
+const bookings: [string, string, string, Status, PaymentStatus | null][] = [
+  ["seed.asha@example.com", "seed.citycare@example.com", "Complete Blood Count", "Confirmed", "Success"],
+  ["seed.asha@example.com", "seed.citycare@example.com", "Lipid Profile", "Confirmed", "Success"],
+  ["seed.asha@example.com", "seed.sunrise@example.com", "MRI Brain", "Pending", null],
+  ["seed.rahul@example.com", "seed.greenvalley@example.com", "Vitamin D", "Confirmed", "Success"],
+  ["seed.rahul@example.com", "seed.greenvalley@example.com", "Urine Routine", "Cancelled", "Refunded"],
+  ["seed.priya@example.com", "seed.sunrise@example.com", "Thyroid Profile", "Failed", "Failed"],
+  ["seed.priya@example.com", "seed.citycare@example.com", "HbA1c", "Confirmed", "Success"],
 ];
 
 async function main() {
@@ -78,7 +80,14 @@ async function main() {
   const seedHospitalEmails = hospitals.map((h) => h.email);
   const seedUserEmails = users.map((u) => u.email);
 
-  // clear previous seed bookings/tests so re-runs don't duplicate them
+  // clear previous seed payments/bookings/tests so re-runs don't duplicate them
+  const seedBookings = {
+    OR: [
+      { user: { email: { in: seedUserEmails } } },
+      { test: { hospital: { email: { in: seedHospitalEmails } } } },
+    ],
+  };
+  await prisma.payment.deleteMany({ where: { booking: seedBookings } });
   await prisma.booking.deleteMany({
     where: {
       OR: [
@@ -92,6 +101,7 @@ async function main() {
   });
 
   const testIds = new Map<string, string>();
+  const prices = new Map<string, number>();
   for (const h of hospitals) {
     const data = {
       hopitalname: h.hopitalname,
@@ -109,12 +119,13 @@ async function main() {
         data: { ...t, hospitalId: hospital.id },
       });
       testIds.set(`${h.email}|${t.name}`, test.id);
+      prices.set(test.id, test.price);
     }
   }
 
   const userIds = new Map<string, string>();
   for (const u of users) {
-    const data = { username: u.username, password: userPasswordHash, refreshtoken: "" };
+    const data = { username: u.username, password: userPasswordHash, refreshtoken: null };
     const user = await prisma.user.upsert({
       where: { email: u.email },
       update: data,
@@ -123,13 +134,32 @@ async function main() {
     userIds.set(u.email, user.id);
   }
 
-  for (const [userEmail, hospitalEmail, testName, status, paymentStatus] of bookings) {
+  for (const [i, [userEmail, hospitalEmail, testName, status, paymentStatus]] of bookings.entries()) {
+    const testId = testIds.get(`${hospitalEmail}|${testName}`)!;
+    const price = prices.get(testId)!;
+    const date = new Date();
+    date.setUTCDate(date.getUTCDate() + 7 + i);
+    date.setUTCHours(4, 30, 0, 0);
     await prisma.booking.create({
       data: {
         userId: userIds.get(userEmail)!,
-        testId: testIds.get(`${hospitalEmail}|${testName}`)!,
+        testId,
+        price,
         status,
-        paymentStatus,
+        date,
+        ...(paymentStatus
+          ? {
+              payments: {
+                create: {
+                  amount: price,
+                  status: paymentStatus,
+                  idempotencyKey: crypto.randomUUID(),
+                  providerRef: `mock_pay_${crypto.randomUUID()}`,
+                  failureReason: paymentStatus === "Failed" ? "card_declined" : null,
+                },
+              },
+            }
+          : {}),
       },
     });
   }
