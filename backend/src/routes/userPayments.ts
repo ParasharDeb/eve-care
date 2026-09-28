@@ -1,8 +1,10 @@
 import { Router } from "express";
-import { randomUUID } from "crypto";
+import { randomUUID, timingSafeEqual } from "crypto";
 import prisma from "@repo/db";
 import { userAuthMiddleware, type UserRequest } from "../middleware/userAuthMiddleware";
-import { idempotencyKeySchema, paymentIdSchema, paymentTypes } from "../types/paymentTypes";
+import { idempotencyKeySchema, paymentIdSchema, paymentTypes, webhookTypes } from "../types/paymentTypes";
+import { processPayment, signWebhook } from "../utils/mockProvider";
+import { retryOnConflict } from "../utils/retry";
 
 export const PaymentRouter=Router()
 
@@ -95,17 +97,19 @@ PaymentRouter.post("/",userAuthMiddleware,async(req:UserRequest,res)=>{
             return
         }
 
+        // stands in for the transaction id a real gateway like razorpay would return
+        const providerRef=`mock_pay_${randomUUID()}`
         const payment=await prisma.payment.create({
             data:{
                 idempotencyKey:idempotencyKey,
                 bookingId:booking.id,
                 amount:booking.price,
-                // stands in for the transaction id a real gateway like razorpay would return
-                providerRef:`mock_pay_${randomUUID()}`
+                providerRef:providerRef
             },
             select:paymentSelect
         })
-        // TODO phase 4: hand the payment to the mock provider, which settles it via the webhook
+        // only after the payment is saved: the provider reports the result to POST /payments/webhook
+        processPayment(providerRef,parsed.data.simulate)
         req.log.info({ userId, bookingId, paymentId:payment.id },"payment created")
         res.status(202).location(`/payments/${payment.id}`).json({
             payment
@@ -133,6 +137,149 @@ PaymentRouter.post("/",userAuthMiddleware,async(req:UserRequest,res)=>{
             return
         }
         req.log.error({ err:error, userId, bookingId },"payment failed")
+        res.status(500).json({
+            message:"Sorry the backend is down. Try again later"
+        })
+    }
+})
+
+// the provider signs the raw body with the shared WEBHOOK_SECRET, the same way razorpay/stripe do
+function isValidSignature(rawBody:Buffer|undefined,signature:unknown){
+    const secret=process.env.WEBHOOK_SECRET
+    if(!secret || !rawBody || typeof signature!=="string"){
+        return false
+    }
+    const expected=signWebhook(rawBody,secret)
+    if(signature.length!==expected.length){
+        return false
+    }
+    return timingSafeEqual(Buffer.from(signature),Buffer.from(expected))
+}
+
+PaymentRouter.post("/webhook",async(req,res)=>{
+    const rawBody=(req as { rawBody?: Buffer }).rawBody
+    if(!isValidSignature(rawBody,req.headers["x-webhook-signature"])){
+        req.log.warn("webhook rejected: invalid signature")
+        res.status(401).json({
+            message:"invalid signature"
+        })
+        return
+    }
+    const parsed=webhookTypes.safeParse(req.body)
+    if(!parsed.success){
+        req.log.warn({ issues: parsed.error.issues.map(i=>i.path.join(".")) },"webhook validation failed")
+        res.status(400).json({
+            message:"invalid webhook event"
+        })
+        return
+    }
+    const event=parsed.data
+    const paymentSucceeded=event.status==="SUCCESS"
+
+    try {
+        const payment=await prisma.payment.findUnique({
+            where:{
+                providerRef:event.providerRef
+            }
+        })
+        if(!payment){
+            // nothing is recorded, so when the provider retries it isn't mistaken for a duplicate
+            req.log.warn({ eventId:event.eventId, providerRef:event.providerRef },"webhook: payment not found")
+            res.status(404).json({
+                message:"payment not found"
+            })
+            return
+        }
+
+        // everything inside commits together or not at all; a deadlock with a cancel is retried
+        const result=await retryOnConflict(()=>prisma.$transaction(async(tx)=>{
+            // eventID is unique, so a repeated event throws here and nothing below runs
+            await tx.webhook.create({
+                data:{
+                    eventID:event.eventId,
+                    type:paymentSucceeded?"payment.succeeded":"payment.failed",
+                    payload:rawBody!.toString(),
+                    status:"processed",
+                    recivedAt:new Date()
+                }
+            })
+
+            // only a payment still waiting for its result can change, so a late or conflicting event does nothing
+            const updatedPayment=await tx.payment.updateMany({
+                where:{
+                    id:payment.id,
+                    status:"Created"
+                },
+                data:{
+                    status:paymentSucceeded?"Success":"Failed",
+                    failureReason:paymentSucceeded?null:(event.failureReason ?? "payment_failed")
+                }
+            })
+            if(updatedPayment.count===0){
+                await tx.webhook.update({
+                    where:{
+                        eventID:event.eventId
+                    },
+                    data:{
+                        status:"ignored"
+                    }
+                })
+                return "ignored"
+            }
+
+            const updatedBooking=await tx.booking.updateMany({
+                where:{
+                    id:payment.bookingId,
+                    status:"Pending"
+                },
+                data:{
+                    status:paymentSucceeded?"Confirmed":"Failed"
+                }
+            })
+            // the booking was cancelled while the payment was running: the money was taken
+            // for nothing, so give it back (simulated refund) and keep the booking cancelled
+            if(updatedBooking.count===0 && paymentSucceeded){
+                await tx.payment.update({
+                    where:{
+                        id:payment.id
+                    },
+                    data:{
+                        status:"Refunded"
+                    }
+                })
+                return "refunded"
+            }
+            return "processed"
+        }))
+
+        if(result==="refunded"){
+            req.log.info({ eventId:event.eventId, paymentId:payment.id },"webhook: booking was cancelled, payment refunded")
+            res.json({
+                message:"booking was cancelled, payment refunded"
+            })
+            return
+        }
+        if(result==="ignored"){
+            req.log.info({ eventId:event.eventId, paymentId:payment.id, paymentStatus:payment.status },"webhook ignored: payment already settled")
+            res.json({
+                message:"payment already settled, event ignored"
+            })
+            return
+        }
+        req.log.info({ eventId:event.eventId, paymentId:payment.id, status:event.status },"webhook processed")
+        res.json({
+            message:"event processed"
+        })
+    } catch (error) {
+        // the same event arrived again: answer 200 so the provider stops retrying
+        if((error as { code?: string }).code==="P2002"){
+            req.log.info({ eventId:event.eventId },"webhook duplicate: event already processed")
+            res.json({
+                message:"event already processed"
+            })
+            return
+        }
+        req.log.error({ err:error, eventId:event.eventId },"webhook failed")
         res.status(500).json({
             message:"Sorry the backend is down. Try again later"
         })

@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "bun --watch run src/index.ts",
     "start": "bun run src/index.ts",
-    "test": "bun test tests --timeout 30000"
+    "test": "bun test tests --timeout 30000",
+    "webhook": "bun run scripts/sendWebhook.ts"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -27,6 +28,7 @@
     "cors": "^2.8.6",
     "dotenv": "^18.0.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
     "jsonwebtoken": "^9.0.3",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",

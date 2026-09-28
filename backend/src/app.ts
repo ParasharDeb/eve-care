@@ -7,13 +7,21 @@ import { userBookingRouter } from "./routes/userBooking"
 import { httpLogger } from "./utils/logger"
 import { PaymentRouter } from "./routes/userPayments"
 import { HospitalBooking } from "./routes/hospitalBooking"
+import { apiLimiter, authLimiter, paymentLimiter } from "./utils/rateLimit"
 
 export const app=express()
 
 app.use(httpLogger)
 app.use(cors())
-app.use(express.json())
+// keep the raw bytes too: the webhook signature is checked against exactly what the provider sent
+app.use(express.json({ verify:(req,_res,buf)=>{ (req as { rawBody?: Buffer }).rawBody=buf } }))
 app.use(cookieParser())
+
+// rate limits. the webhook is left out on purpose: the payment provider must never be throttled
+app.use("/api",apiLimiter)
+app.use(["/api/user/auth/signin","/api/user/auth/signup","/api/hospital/auth/signin","/api/hospital/auth/signup"],authLimiter)
+app.post("/payments",paymentLimiter)
+app.get("/payments/:id",paymentLimiter)
 
 app.use("/api/user/auth",UserAuthRoter)
 app.use("/api/hospital/auth",HospitalAuthRouter)

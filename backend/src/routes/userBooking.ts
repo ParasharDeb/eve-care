@@ -3,6 +3,7 @@ import prisma from "@repo/db";
 import { SearchHospitalSchema, SearchTestSchema } from "../types/UserSearch";
 import { userAuthMiddleware, type UserRequest } from "../middleware/userAuthMiddleware";
 import { BookingIdSchema, BookingSchema } from "../types/UserBooking";
+import { retryOnConflict } from "../utils/retry";
 
 export const userBookingRouter=Router()
 
@@ -222,6 +223,90 @@ userBookingRouter.get("/booking/:id",userAuthMiddleware,async(req:UserRequest,re
         })
     } catch (error) {
         req.log.error({ err:error, userId, bookingId:bookingId.data },"get booking failed")
+        res.status(500).json({
+            message:"Sorry the backend is down. Try again later"
+        })
+    }
+})
+userBookingRouter.post("/booking/:id/cancel",userAuthMiddleware,async(req:UserRequest,res)=>{
+    const bookingId=BookingIdSchema.safeParse(req.params.id)
+    if(!bookingId.success){
+        req.log.warn("cancel booking: invalid booking id")
+        res.status(400).json({
+            message:"Invalid booking ID"
+        })
+        return
+    }
+    const userId=req.user!.id
+
+    try {
+        // filtering by userId makes someone else's booking look the same as a missing one
+        const booking=await prisma.booking.findFirst({
+            where:{
+                id:bookingId.data,
+                userId:userId
+            }
+        })
+        if(!booking){
+            req.log.info({ userId, bookingId:bookingId.data },"cancel booking: not found")
+            res.status(404).json({
+                message:"booking not found"
+            })
+            return
+        }
+        if(booking.status!=="Pending" && booking.status!=="Confirmed"){
+            req.log.warn({ userId, bookingId:booking.id, status:booking.status },"cancel booking rejected: already finished")
+            res.status(409).json({
+                message:`booking is already ${booking.status.toLowerCase()}`
+            })
+            return
+        }
+
+        // cancelling and refunding commit together or not at all; a deadlock with the webhook is retried
+        const refunded=await retryOnConflict(()=>prisma.$transaction(async(tx)=>{
+            // only cancel if nothing changed the status since we read it (e.g. the webhook failing it)
+            const cancelled=await tx.booking.updateMany({
+                where:{
+                    id:booking.id,
+                    status:{ in:["Pending","Confirmed"] }
+                },
+                data:{
+                    status:"Cancelled"
+                }
+            })
+            if(cancelled.count===0){
+                return null
+            }
+            // a paid booking gets its money back (simulated refund).
+            // a payment still running is refunded by the webhook if it succeeds later
+            const refund=await tx.payment.updateMany({
+                where:{
+                    bookingId:booking.id,
+                    status:"Success"
+                },
+                data:{
+                    status:"Refunded"
+                }
+            })
+            return refund.count>0
+        }))
+        if(refunded===null){
+            req.log.warn({ userId, bookingId:booking.id },"cancel booking rejected: status changed meanwhile")
+            res.status(409).json({
+                message:"booking can no longer be cancelled"
+            })
+            return
+        }
+
+        req.log.info({ userId, bookingId:booking.id, refunded },"booking cancelled")
+        res.json({
+            message:refunded?"booking cancelled and payment refunded":"booking cancelled",
+            bookingId:booking.id,
+            status:"Cancelled",
+            refunded
+        })
+    } catch (error) {
+        req.log.error({ err:error, userId, bookingId:bookingId.data },"cancel booking failed")
         res.status(500).json({
             message:"Sorry the backend is down. Try again later"
         })

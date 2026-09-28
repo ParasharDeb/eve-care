@@ -6,6 +6,10 @@ import { app } from "../src/app";
 
 export { prisma };
 
+// read per request, so a test file can switch either back on for itself
+process.env.RATE_LIMIT_DISABLED = "true"; // the suite sends hundreds of requests from one IP
+process.env.MOCK_PROVIDER_ENABLED = "false"; // tests send webhooks themselves, deterministically
+
 export type Fixture = {
   userToken: string;
   user2Token: string;
@@ -26,6 +30,8 @@ const password = "Passw0rd!";
 
 // /payments is mounted at the root like the brief says; everything else lives under /api
 const url = (path: string) => (path.startsWith("/payments") ? origin : baseUrl) + path;
+
+export const serverOrigin = () => origin;
 
 export async function call(path: string, body?: unknown, token?: string, rawBody?: string, extraHeaders: Record<string, string> = {}) {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...extraHeaders };
